@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bhabhi Thulla — Getaway Card Game</title>
+<meta name="description" content="Bhabhi Thulla (Getaway): the classic Punjabi shedding card game. Play vs bots or with friends online — no account needed, just a 6-digit room code.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <h1>🃏 Bhabhi Thulla</h1>
+  <p class="tagline">The Punjabi shedding card game — also known as Getaway. Don&rsquo;t be the last one holding cards!</p>
+</header>
+
+<main>
+  <!-- ============ HOME ============ -->
+  <section id="screen-home" class="screen active">
+    <div class="panel">
+      <h2>Welcome!</h2>
+      <label class="field-label" for="name-input">Your name</label>
+      <input type="text" id="name-input" maxlength="16" placeholder="Enter your name" autocomplete="off">
+      <p class="hint">Your name is saved on this device only. No account, no sign-up.</p>
+      <div>
+        <button class="btn" id="btn-mode-bots">🤖 Play vs Bots</button>
+        <button class="btn" id="btn-mode-friends">👥 Play with Friends</button>
+      </div>
+      <div>
+        <button class="btn secondary" id="btn-rules">📖 Rules</button>
+      </div>
+      <p class="hint">Free forever. Works on phones and computers. Share the game link with your friends and play together.</p>
+    </div>
+  </section>
+
+  <!-- ============ BOTS SETUP ============ -->
+  <section id="screen-bots" class="screen">
+    <div class="panel">
+      <h2>Play vs Bots</h2>
+      <p>How many players in total (including you)?</p>
+      <div>
+        <button class="btn" id="btn-players-3">3 Players</button>
+        <button class="btn" id="btn-players-4">4 Players</button>
+      </div>
+      <p class="hint">With 3 players the cards are dealt 18 / 17 / 17. With 4 players everyone gets 13 cards.</p>
+      <button class="btn secondary small" id="btn-bots-back">← Back</button>
+    </div>
+  </section>
+
+  <!-- ============ FRIENDS ============ -->
+  <section id="screen-friends" class="screen">
+    <div class="panel">
+      <h2>Play with Friends</h2>
+      <p>Play online with 3–4 friends. No account needed — just share a 6-digit room code.</p>
+      <button class="btn" id="btn-create-room">➕ Create a Room</button>
+      <div class="divider">— OR —</div>
+      <label class="field-label" for="join-code">Join with a 6-digit code</label>
+      <input type="tel" id="join-code" maxlength="6" inputmode="numeric" placeholder="e.g. 482913" autocomplete="off">
+      <br>
+      <button class="btn" id="btn-join-room">🚪 Join Room</button>
+      <p class="status-line" id="friends-status"></p>
+      <button class="btn secondary small" id="btn-friends-back">← Back</button>
+    </div>
+  </section>
+
+  <!-- ============ LOBBY ============ -->
+  <section id="screen-lobby" class="screen">
+    <div class="panel">
+      <h2>Room Lobby</h2>
+      <p>Share this code with your friends:</p>
+      <div class="room-code-big" id="room-code-big">------</div>
+      <button class="btn small" id="btn-copy-code">📋 Copy Code</button>
+      <p class="hint">Or share the game link — it opens the game with the code already filled in:</p>
+      <div class="share-row">
+        <input type="text" id="room-link" readonly>
+        <button class="btn small" id="btn-copy-link">Copy Link</button>
+      </div>
+      <h3>Players <span id="lobby-count">1 / 4</span></h3>
+      <ul class="player-list" id="lobby-players"></ul>
+      <p class="status-line" id="lobby-status"></p>
+      <p class="hint" id="lobby-wait-note" style="display:none">Waiting for the host to start the game…</p>
+      <div id="lobby-is-host">
+        <button class="btn" id="btn-start-game" disabled>Start Game</button>
+      </div>
+      <button class="btn secondary small" id="btn-leave-lobby">Leave Room</button>
+    </div>
+  </section>
+
+  <!-- ============ TABLE ============ -->
+  <section id="screen-table" class="screen">
+    <div class="turn-banner" id="turn-banner"></div>
+    <div class="conn-status ok" id="conn-status"></div>
+    <div class="table-wrap">
+      <div class="seats players-4" id="seats"></div>
+      <div class="trick-area">
+        <div class="trick-pile" id="trick-pile"></div>
+        <div class="waste-count" id="waste-count"></div>
+      </div>
+      <div class="hand-zone">
+        <div class="hand" id="my-hand"></div>
+      </div>
+    </div>
+    <div class="log-panel">
+      <h3>📝 Game Log</h3>
+      <div id="game-log"></div>
+    </div>
+    <div class="table-controls">
+      <button class="btn secondary small" id="btn-rules-table">📖 Rules</button>
+      <button class="btn secondary small" id="btn-leave-table">Leave Game</button>
+    </div>
+  </section>
+
+  <!-- ============ RESULT ============ -->
+  <section id="screen-result" class="screen">
+    <div class="panel wide">
+      <h2 id="result-title">Round Over!</h2>
+      <h3>Order of escape</h3>
+      <ol class="result-list" id="result-order"></ol>
+      <h3>🏆 Bhabhi Scoreboard (this session)</h3>
+      <ul class="result-list" id="result-counts"></ul>
+      <button class="btn" id="btn-play-again">Play Again</button>
+      <button class="btn secondary" id="btn-result-home">Home</button>
+    </div>
+  </section>
+</main>
+
+<!-- ============ RULES MODAL ============ -->
+<div class="modal" id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+  <div class="modal-card">
+    <h2 id="rules-title">📖 How to Play Bhabhi Thulla</h2>
+    <p><strong>Bhabhi Thulla</strong>, also known as <strong>Getaway</strong>, is a classic Punjabi shedding card game. The goal is simple: get rid of all your cards. The last player still holding cards is the <strong>Bhabhi</strong> (the loser).</p>
+
+    <h3>⚡ How to play in 30 seconds</h3>
+    <ul>
+      <li>Whoever holds the <strong>Ace of Spades</strong> starts by playing it.</li>
+      <li>On your turn, play a card of the same suit as the card that was led — if you have one.</li>
+      <li>If you don&rsquo;t have that suit, you may play any card — that is a <strong>Thulla</strong>. It ends the trick at once, and the player with the highest card of the led suit picks up all the cards played.</li>
+      <li>Play your last card and you escape, safe. The last player left holding cards is the Bhabhi!</li>
+    </ul>
+
+    <h3>🃏 Setup</h3>
+    <ul>
+      <li>Standard 52-card deck, no jokers. Ranks from high to low: A K Q J 10 9 8 7 6 5 4 3 2. There are no trump suits.</li>
+      <li>3 or 4 players. All 52 cards are dealt: with 3 players the hands are 18 / 17 / 17; with 4 players everyone gets 13 cards.</li>
+      <li>Play goes clockwise.</li>
+    </ul>
+
+    <h3>🎴 The first trick</h3>
+    <ul>
+      <li>The player holding the <strong>Ace of Spades must lead it</strong> face-up.</li>
+      <li>Every other player plays one card, clockwise. Players holding a spade must play a spade; players with no spade may play any card.</li>
+      <li>A Thulla does <strong>not</strong> stop the first trick — everyone still plays.</li>
+      <li>All first-trick cards go to the waste pile, and the Ace of Spades holder leads the second trick.</li>
+    </ul>
+
+    <h3>🎴 Later tricks</h3>
+    <ul>
+      <li>The leader plays any card. Each following player <strong>must</strong> play a card of the led suit if they hold one.</li>
+      <li>If a player holds no card of the led suit, they may play any card — that off-suit card is the <strong>Thulla</strong> (also called <em>tochoo</em>).</li>
+      <li>A Thulla ends the trick immediately: players after the Thulla player do not play.</li>
+    </ul>
+
+    <h3>🏆 Winning and losing a trick</h3>
+    <ul>
+      <li><strong>Clean trick</strong> (everyone followed suit): the cards are discarded to the waste pile, and the player who played the <strong>highest card of the led suit</strong> leads the next trick.</li>
+      <li><strong>Thulla trick</strong>: the player who played the highest card of the <strong>led suit</strong> picks up <strong>all</strong> the cards played in that trick and leads the next trick.</li>
+    </ul>
+
+    <h3>🏃 Getting away &amp; the Bhabhi</h3>
+    <ul>
+      <li>A player who plays their last card is out and safe — they have escaped.</li>
+      <li><strong>House rule (power edge case):</strong> if a player&rsquo;s last card was the highest of the led suit in a clean trick, they would normally hold the power to lead — but they have no cards left. In this game they are out and safe, and the lead passes to the next active player clockwise.</li>
+      <li>Play continues until only <strong>one</strong> player still holds cards — that player is the <strong>Bhabhi</strong>.</li>
+      <li><strong>Tiebreak:</strong> if all remaining players empty their hands on the same trick, the player who <strong>led</strong> that trick is the Bhabhi.</li>
+      <li>Play again to settle the score — the scoreboard counts how many times each player has been the Bhabhi.</li>
+    </ul>
+
+    <h3>👥 Playing with friends</h3>
+    <ul>
+      <li>Tap <strong>Create a Room</strong> to get a 6-digit code, and share the code or the game link with your friends.</li>
+      <li>Friends open the link, enter their name, and join with the code. The host starts when 3–4 players are in the room.</li>
+      <li>If a friend disconnects mid-game, a bot takes over their seat so the game can continue. If the host leaves, the game ends for everyone.</li>
+    </ul>
+
+    <div class="close-row">
+      <button class="btn" id="btn-close-rules">Got it!</button>
+    </div>
+  </div>
+</div>
+
+<!-- Host left overlay -->
+<div class="modal" id="host-left" role="dialog" aria-modal="true">
+  <div class="modal-card" style="text-align:center">
+    <h2>Host left — game over</h2>
+    <p>The host disconnected, so this game cannot continue. You can create your own room and invite your friends again.</p>
+    <button class="btn" id="btn-host-left-home">Back to Home</button>
+  </div>
+</div>
+
+<div class="thulla-flash" id="thulla-flash"></div>
+<div class="toast" id="toast"></div>
+
+<footer>
+  Bhabhi Thulla (Getaway) — free, no accounts, no sign-up. Made for playing with friends.
+</footer>
+
+<script src="js/engine.js"></script>
+<script src="js/cards.js"></script>
+<script src="js/bots.js"></script>
+<script src="js/net.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
