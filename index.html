@@ -106,10 +106,35 @@
     <div class="turn-banner" id="turn-banner"></div>
     <div class="conn-status ok" id="conn-status"></div>
     <div class="table-wrap" id="table-wrap">
+      <button class="menu-btn" id="btn-menu" aria-label="Menu">☰</button>
+      <div class="menu-pop" id="menu-pop">
+        <button class="menu-item" id="btn-sound">🔊 Sound: On</button>
+        <button class="menu-item" id="btn-rules-table">📖 Rules</button>
+        <button class="menu-item" id="btn-leave-table">🚪 Leave Game</button>
+      </div>
+      <div class="deck-pile" id="deck-pile">
+        <div class="deck-stack">
+          <div class="card back deck-back"><div class="back-mono gold">♠</div></div>
+          <div class="card back deck-back"><div class="back-mono gold">♠</div></div>
+          <div class="card back deck-back"><div class="back-mono gold">♠</div></div>
+        </div>
+        <div class="deck-count" id="deck-count">0 cards</div>
+      </div>
       <div class="seats players-4" id="seats"></div>
       <div class="trick-area">
         <div class="trick-pile" id="trick-pile"></div>
         <div class="waste-count" id="waste-count"></div>
+      </div>
+      <div class="table-actions">
+        <div class="emote-row" id="emote-row">
+          <button class="emote-choice" data-emoji="👍" aria-label="Thumbs up">👍</button>
+          <button class="emote-choice" data-emoji="😂" aria-label="Laugh">😂</button>
+          <button class="emote-choice" data-emoji="😮" aria-label="Wow">😮</button>
+          <button class="emote-choice" data-emoji="🔥" aria-label="Fire">🔥</button>
+          <button class="emote-choice" data-emoji="👏" aria-label="Clap">👏</button>
+        </div>
+        <button class="sort-btn" id="btn-sort">Sort</button>
+        <button class="emote-btn" id="btn-emote" aria-label="Send an emote">💬</button>
       </div>
       <div class="hand-zone">
         <div class="hand" id="my-hand"></div>
@@ -118,11 +143,6 @@
     <div class="log-panel">
       <h3>📝 Game Log</h3>
       <div id="game-log"></div>
-    </div>
-    <div class="table-controls">
-      <button class="btn secondary small" id="btn-sound">🔊 Sound: On</button>
-      <button class="btn secondary small" id="btn-rules-table">📖 Rules</button>
-      <button class="btn secondary small" id="btn-leave-table">Leave Game</button>
     </div>
   </section>
 

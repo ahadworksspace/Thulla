@@ -110,7 +110,7 @@
   var latestView = null;        // newest view (may be waiting out a trick pause)
   var renderTimer = null;       // pending deferred render after a trick resolves
   var dealPlayed = false;       // dealing animation already ran for this game
-  var AVATAR_COLORS = ['#c0392b', '#2471a3', '#7d3c98', '#b9770e', '#117a65', '#6c3483'];
+  var handSorted = false;       // hand sort toggle (Sort button)
 
   var BOT_NAMES = ['Ravi', 'Simran', 'Aisha', 'Gurpreet', 'Meera', 'Arjun'];
   var MIN_PLAYERS = 3, MAX_PLAYERS = 4;
@@ -186,6 +186,9 @@
     mySeat = 0;
     inGame = true;
     dealPlayed = false;
+    handSorted = false;
+    var sortBtn = $('btn-sort');
+    if (sortBtn) sortBtn.classList.remove('active');
     lastRenderedView = null;
     show('screen-table');
     renderTable();
@@ -289,6 +292,10 @@
           animatePileToSeat(latestView.lastEvent.player);
           flashThulla('PICK UP!', 'thulla-pickup|' + JSON.stringify(latestView.lastEvent));
         }
+        if (latestView.lastEvent && (latestView.lastEvent.type === 'clean-win' ||
+            latestView.lastEvent.type === 'first-trick')) {
+          animateCardToDeck();
+        }
         renderTableView(latestView);
         lastRenderedView = latestView;
       }, delay);
@@ -314,6 +321,8 @@
     var seatCls = n === 3 ? SEAT_CLASS_3 : SEAT_CLASS_4;
     var seatsBox = $('seats');
     seatsBox.className = 'seats players-' + n;
+    var wrapEl = $('table-wrap');
+    if (wrapEl) { wrapEl.classList.remove('players-3', 'players-4'); wrapEl.classList.add('players-' + n); }
     seatsBox.innerHTML = '';
 
     for (var rel = 0; rel < n; rel++) {
@@ -321,9 +330,12 @@
       var p = view.players[idx];
       var seat = el('div', 'seat ' + seatCls[rel] + (view.turn === idx && view.phase === 'playing' ? ' turn' : ''));
       seat.dataset.player = idx;
-      var av = el('div', 'avatar', (p.name || '?').charAt(0).toUpperCase());
-      av.style.background = AVATAR_COLORS[idx % AVATAR_COLORS.length];
-      seat.appendChild(av);
+      var row = el('div', 'seat-row');
+      if (rel !== 0) row.appendChild(Cards.createMiniBacks(p.count, { showCount: false }));
+      var av = Cards.createAvatar(idx);
+      av.appendChild(el('div', 'avatar-badge', String(p.count)));
+      row.appendChild(av);
+      seat.appendChild(row);
       var nameRow = el('div', 'seat-name', p.name + (idx === mySeat ? ' (You)' : ''));
       if (p.isBot) nameRow.appendChild(el('span', 'tag', ' BOT'));
       if (p.disconnected) nameRow.appendChild(el('span', 'tag warn', ' DISCONNECTED'));
@@ -332,8 +344,6 @@
       if (rel === 0) {
         // My hand is rendered separately in the hand area.
         seat.appendChild(el('div', 'seat-count', p.count + (p.count === 1 ? ' card' : ' cards')));
-      } else {
-        seat.appendChild(Cards.createMiniBacks(p.count));
       }
 
       var status = '';
@@ -362,7 +372,7 @@
     } else {
       view.trick.forEach(function (t, i) {
         var rel = (t.player - mySeat + n) % n;
-        var wrap = el('div', 'trick-card small ' + seatCls[rel]);
+        var wrap = el('div', 'trick-card small ' + seatCls[rel].replace('seat-', 'slot-'));
         wrap.dataset.card = t.card;
         wrap.style.setProperty('--rot', ((i - (view.trick.length - 1) / 2) * 6) + 'deg');
         wrap.appendChild(Cards.createCard(t.card, E, { small: true }));
@@ -386,6 +396,8 @@
       });
     }
     $('waste-count').textContent = 'Waste pile: ' + view.wasteCount + ' cards';
+    var deckCount = $('deck-count');
+    if (deckCount) deckCount.textContent = view.wasteCount + (view.wasteCount === 1 ? ' card' : ' cards');
 
     // Dealing animation on a fresh deal (once per game).
     var dealtNow = false;
@@ -451,11 +463,15 @@
     if (view.phase === 'playing' && view.turn === mySeat) {
       legal = E.legalMoves(viewAsEngineState(view), mySeat);
     }
-    var sorted = me.hand.slice().sort(function (a, b) {
-      var sa = E.suitOf(a), sb = E.suitOf(b);
-      if (sa !== sb) return 'SHDC'.indexOf(sa) - 'SHDC'.indexOf(sb);
-      return E.rankOf(b) - E.rankOf(a);
-    });
+    var cards = me.hand.slice();
+    if (handSorted) {
+      cards.sort(function (a, b) {
+        var sa = E.suitOf(a), sb = E.suitOf(b);
+        if (sa !== sb) return 'SHDC'.indexOf(sa) - 'SHDC'.indexOf(sb);
+        return E.rankOf(b) - E.rankOf(a);
+      });
+    }
+    var sorted = cards;
     sorted.forEach(function (card, i) {
       var playable = legal.indexOf(card) !== -1;
       var canPlay = view.phase === 'playing' && view.turn === mySeat;
@@ -551,6 +567,48 @@
         ], { duration: 700, delay: k * 70, easing: 'cubic-bezier(.4,.6,.4,1)', fill: 'forwards' });
         setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 950 + k * 70);
       })(i);
+    }
+  }
+
+  // Fly one ghost card from the trick area to the waste/deck pile.
+  function animateCardToDeck() {
+    var pile = $('trick-pile');
+    var deck = $('deck-pile');
+    if (!pile || !deck) return;
+    var from = pile.getBoundingClientRect();
+    var to = deck.getBoundingClientRect();
+    var g = Cards.createDeckBack();
+    g.classList.add('fly-ghost');
+    g.style.left = (from.left + from.width / 2 - 23) + 'px';
+    g.style.top = (from.top + from.height / 2 - 32) + 'px';
+    document.body.appendChild(g);
+    g.animate([
+      { transform: 'translate(0px, 0px) rotate(0deg) scale(1)', opacity: 1 },
+      { transform: 'translate(' + ((to.left + to.width / 2) - (from.left + from.width / 2)) + 'px, ' + ((to.top + to.height / 2) - (from.top + from.height / 2)) + 'px) rotate(-14deg) scale(0.6)', opacity: 0.9 }
+    ], { duration: 600, easing: 'cubic-bezier(.4,.6,.4,1)', fill: 'forwards' });
+    setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 750);
+  }
+
+  // ---------- emotes ----------
+  function showEmote(seat, emoji) {
+    var seatEl = seatElForPlayer(seat);
+    if (!seatEl) return;
+    var old = seatEl.querySelector('.emote-bubble');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var b = el('div', 'emote-bubble', emoji);
+    seatEl.appendChild(b);
+    setTimeout(function () { if (b.parentNode) b.parentNode.removeChild(b); }, 2000);
+  }
+
+  function sendEmote(emoji) {
+    showEmote(mySeat, emoji);
+    if (mode !== 'friends') return;
+    if (isHost) {
+      Object.keys(hostConns).forEach(function (pid) {
+        try { hostConns[pid].conn.send({ t: 'emote', seat: mySeat, emoji: emoji }); } catch (e) { /* ignore */ }
+      });
+    } else if (hostConn && hostConn.open) {
+      try { hostConn.send({ t: 'emote', seat: mySeat, emoji: emoji }); } catch (e) { /* ignore */ }
     }
   }
 
@@ -707,6 +765,14 @@
         handleJoin(conn, data.name);
       } else if (data.t === 'play') {
         handleRemotePlay(conn, data.card);
+      } else if (data.t === 'emote') {
+        var eEntry = hostConns[conn.peer];
+        if (eEntry) {
+          showEmote(eEntry.seat, data.emoji);
+          Object.keys(hostConns).forEach(function (pid) {
+            try { hostConns[pid].conn.send({ t: 'emote', seat: eEntry.seat, emoji: data.emoji }); } catch (e) { /* ignore */ }
+          });
+        }
       }
     });
     conn.on('close', function () { handleHostDisconnect(conn); });
@@ -805,6 +871,9 @@
     mySeat = 0;
     inGame = true;
     dealPlayed = false;
+    handSorted = false;
+    var sortBtn2 = $('btn-sort');
+    if (sortBtn2) sortBtn2.classList.remove('active');
     lastRenderedView = null;
     broadcastState();
     show('screen-table');
@@ -844,6 +913,8 @@
           if (!$('screen-table').classList.contains('active')) show('screen-table');
           renderTable();
           if (viewState.phase === 'over') showResult();
+        } else if (data.t === 'emote') {
+          showEmote(data.seat, data.emoji);
         } else if (data.t === 'full') {
           setFriendsStatus('That room is full (4 players max).');
         } else if (data.t === 'error') {
@@ -1003,6 +1074,41 @@
     $('btn-play-again').addEventListener('click', playAgain);
     $('btn-result-home').addEventListener('click', leaveGame);
     $('btn-host-left-home').addEventListener('click', leaveGame);
+
+    // Sort my hand (toggles back to the dealt order).
+    $('btn-sort').addEventListener('click', function () {
+      handSorted = !handSorted;
+      $('btn-sort').classList.toggle('active', handSorted);
+      if (lastRenderedView) renderHand(lastRenderedView, false);
+    });
+
+    // Quick emotes.
+    $('btn-emote').addEventListener('click', function () {
+      $('emote-row').classList.toggle('show');
+    });
+    document.querySelectorAll('#emote-row .emote-choice').forEach(function (b) {
+      b.addEventListener('click', function () {
+        $('emote-row').classList.remove('show');
+        sendEmote(b.getAttribute('data-emoji'));
+      });
+    });
+
+    // Hamburger menu (Rules / Sound / Leave).
+    $('btn-menu').addEventListener('click', function (e) {
+      e.stopPropagation();
+      $('menu-pop').classList.toggle('show');
+    });
+    document.addEventListener('click', function (e) {
+      var pop = $('menu-pop');
+      if (pop && pop.classList.contains('show') &&
+          !pop.contains(e.target) && e.target !== $('btn-menu')) {
+        pop.classList.remove('show');
+      }
+    });
+    ['btn-sound', 'btn-rules-table', 'btn-leave-table'].forEach(function (id) {
+      var b = $(id);
+      if (b) b.addEventListener('click', function () { $('menu-pop').classList.remove('show'); });
+    });
 
     // Joining from a shared link: ?room=482913 pre-fills the code.
     var params = new URLSearchParams(location.search);
