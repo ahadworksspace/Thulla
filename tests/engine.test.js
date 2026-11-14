@@ -261,5 +261,97 @@ test('illegal plays are rejected', function () {
   assert(!r3.ok || g.players[holder].hand[0] === 'AS', 'non-AS first lead rejected');
 });
 
+// Smart bot brain tests (new strategy).
+// (a) A bot void in the led suit Thullas with its HIGHEST card, not lowest.
+test('(a) bot void in the led suit Thullas with its highest card', function () {
+  var g = E.createGame(3, {
+    hands: [['5H', '2D'], ['9S', 'KD', '2C'], ['8H', '6C']],
+    names: ['A', 'Bot', 'C'],
+    isFirstTrick: false, trickLeader: 0
+  });
+  assert(E.applyPlay(g, 0, '5H').ok, 'lead 5H');
+  assertEq(Bots.chooseBotMove(E, g, 1), 'KD', 'Thulla dumps the highest card (KD), not the lowest (2C)');
+});
+test('(a) Thulla tie-break: highest rank tied, prefer the suit held fewest of', function () {
+  var g = E.createGame(3, {
+    hands: [['5S', '2D'], ['KH', 'KD', '2D', '2C', '3C'], ['8H', '6C']],
+    names: ['A', 'Bot', 'C'],
+    isFirstTrick: false, trickLeader: 0
+  });
+  assert(E.applyPlay(g, 0, '5S').ok, 'lead 5S');
+  // Bot is void in spades. Kings tie on rank; hearts is held fewest (1 vs 2).
+  assertEq(Bots.chooseBotMove(E, g, 1), 'KH', 'tie-break prefers the suit held fewest of');
+});
+
+// (b) A bot following suit ducks below the current trick-highest when it can.
+test('(b) bot following suit ducks below the current highest when it can', function () {
+  var g = E.createGame(3, {
+    hands: [['9H', '2D'], ['5H', 'QH', '3C'], ['8H', '6C']],
+    names: ['A', 'Bot', 'C'],
+    isFirstTrick: false, trickLeader: 0
+  });
+  assert(E.applyPlay(g, 0, '9H').ok, 'lead 9H');
+  assertEq(Bots.chooseBotMove(E, g, 1), '5H', 'duck with the lowest card below 9H');
+});
+test('(b) bot that must win plays the cheapest winning card, not the Ace/King', function () {
+  var g = E.createGame(3, {
+    hands: [['9H', '2D'], ['QH', 'KH', '3C'], ['8H', '6C']],
+    names: ['A', 'Bot', 'C'],
+    isFirstTrick: false, trickLeader: 0
+  });
+  assert(E.applyPlay(g, 0, '9H').ok, 'lead 9H');
+  assertEq(Bots.chooseBotMove(E, g, 1), 'QH', 'cheapest winner (QH), King is not wasted');
+});
+
+// (c) A bot with 2 cards left leads its highest card.
+test('(c) bot with 2 cards left leads its highest card', function () {
+  var g = E.createGame(3, {
+    hands: [['3D', 'KD'], ['9H', '2C'], ['8H', '6C']],
+    names: ['Bot', 'B', 'C'],
+    isFirstTrick: false, trickLeader: 0
+  });
+  assertEq(Bots.chooseBotMove(E, g, 0), 'KD', 'dump the dangerous King while leading');
+});
+
+// (e) A bot that observed an opponent Thulla on hearts avoids leading hearts.
+test('(e) bot avoids leading a suit an opponent showed void in', function () {
+  var g = E.createGame(3, {
+    hands: [['5H', '9H', '3D', '7S'], ['2C', '4D'], ['8H', '6C']],
+    names: ['Bot', 'Opp', 'Carol'],
+    isFirstTrick: false, trickLeader: 0
+  });
+  assert(E.applyPlay(g, 0, '5H').ok, 'bot leads 5H');
+  var r = E.applyPlay(g, 1, '2C'); // Opp is void in hearts: Thulla
+  assert(r.ok && r.trickOver, 'Thulla ends the trick');
+  assertEq(g.turn, 0, 'bot (highest hearts) picks up and leads again');
+  // Bot hand is now 9H, 3D, 7S, 5H, 2C. Hearts is longest (2) but Opp is
+  // known void in hearts, so the bot must not lead hearts; among the
+  // one-card safe suits (3D, 7S, 2C) it leads the lowest, 2C.
+  assertEq(Bots.chooseBotMove(E, g, 0), '2C', 'avoids hearts, leads lowest of the safe suits');
+});
+
+// (f) Void memory resets for a new game (fresh log, no stale voids).
+test('(f) void memory resets for a new game', function () {
+  var g1 = E.createGame(3, {
+    hands: [['5H', '9H', '3D', '7S'], ['2C', '4D'], ['8H', '6C']],
+    names: ['Bot', 'Opp', 'Carol'],
+    isFirstTrick: false, trickLeader: 0
+  });
+  assert(E.applyPlay(g1, 0, '5H').ok, 'game 1: bot leads 5H');
+  assert(E.applyPlay(g1, 1, '2C').ok, 'game 1: Opp Thullas on hearts');
+  assertEq(Bots.chooseBotMove(E, g1, 0), '2C', 'game 1: bot avoids hearts');
+  // Game 2: same hands, fresh log, no Thulla observed yet.
+  var g2 = E.createGame(3, {
+    hands: [['5H', '9H', '3D', '7S'], ['2C', '4D'], ['8H', '6C']],
+    names: ['Bot', 'Opp', 'Carol'],
+    isFirstTrick: false, trickLeader: 0
+  });
+  assertEq(Bots.chooseBotMove(E, g2, 0), '5H', 'game 2: no stale memory, hearts (longest) is fine again');
+  // resetBotMemory is exported and safe to call.
+  assert(typeof Bots.resetBotMemory === 'function', 'resetBotMemory is exported');
+  Bots.resetBotMemory();
+  assertEq(Bots.chooseBotMove(E, g2, 0), '5H', 'explicit reset keeps the fresh-game behaviour');
+});
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed.');
 process.exit(failed ? 1 : 0);

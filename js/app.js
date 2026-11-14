@@ -33,6 +33,56 @@
     t._timer = setTimeout(function () { t.classList.remove('show'); }, 3500);
   }
 
+  // ---------- sounds (Web Audio, synthesized — no audio files) ----------
+  var Sound = (function () {
+    var ctx = null;
+    function ac() {
+      if (soundMuted) return null;
+      try {
+        if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (ctx.state === 'suspended') ctx.resume();
+        return ctx;
+      } catch (e) { return null; }
+    }
+    function blip(freq0, freq1, dur, vol, type) {
+      var c = ac(); if (!c) return;
+      try {
+        var t = c.currentTime;
+        var o = c.createOscillator(); var g = c.createGain();
+        o.type = type || 'sine';
+        o.frequency.setValueAtTime(freq0, t);
+        if (freq1) o.frequency.exponentialRampToValueAtTime(freq1, t + dur);
+        g.gain.setValueAtTime(vol, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        o.connect(g); g.connect(c.destination);
+        o.start(t); o.stop(t + dur + 0.02);
+      } catch (e) { /* ignore */ }
+    }
+    // Low slam + noise burst: the "THAK" of a Thulla hitting the table.
+    function thud() {
+      var c = ac(); if (!c) return;
+      blip(130, 42, 0.22, 0.5, 'sine');
+      try {
+        var t = c.currentTime;
+        var len = Math.floor(c.sampleRate * 0.09);
+        var buf = c.createBuffer(1, len, c.sampleRate);
+        var d = buf.getChannelData(0);
+        for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        var src = c.createBufferSource(); src.buffer = buf;
+        var g = c.createGain();
+        g.gain.setValueAtTime(0.3, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+        src.connect(g); g.connect(c.destination); src.start(t);
+      } catch (e) { /* ignore */ }
+    }
+    function tick() { blip(880, null, 0.06, 0.12, 'triangle'); }
+    function chime() {
+      blip(660, null, 0.14, 0.16, 'sine');
+      setTimeout(function () { blip(990, null, 0.2, 0.16, 'sine'); }, 110);
+    }
+    return { thud: thud, tick: tick, chime: chime };
+  })();
+
   // ---------- session state ----------
   var myName = localStorage.getItem('thulla-name') || '';
   var mode = null;              // 'bots' | 'friends'
@@ -52,6 +102,15 @@
   var lastFlashKey = '';
   var connected = false;
   var inGame = false;
+  var soundMuted = false;
+  try { soundMuted = localStorage.getItem('thulla-muted') === '1'; } catch (e) { soundMuted = false; }
+  var pendingHandRect = null;   // {card, rect} of the human's just-clicked card
+  var lastPlay = null;          // {player, card, thulla} of the most recent play
+  var lastRenderedView = null;  // view used by the last completed table render
+  var latestView = null;        // newest view (may be waiting out a trick pause)
+  var renderTimer = null;       // pending deferred render after a trick resolves
+  var dealPlayed = false;       // dealing animation already ran for this game
+  var AVATAR_COLORS = ['#c0392b', '#2471a3', '#7d3c98', '#b9770e', '#117a65', '#6c3483'];
 
   var BOT_NAMES = ['Ravi', 'Simran', 'Aisha', 'Gurpreet', 'Meera', 'Arjun'];
   var MIN_PLAYERS = 3, MAX_PLAYERS = 4;
@@ -92,6 +151,7 @@
       bhabhi: state.bhabhi,
       log: state.log.slice(-30),
       lastEvent: state.lastEvent,
+      lastPlay: lastPlay ? { player: lastPlay.player, card: lastPlay.card, thulla: lastPlay.thulla } : null,
       bhabhiCounts: JSON.parse(JSON.stringify(bhabhiCounts))
     };
   }
@@ -122,8 +182,11 @@
       names: names,
       bots: names.map(function (_, i) { return i > 0; })
     });
+    if (Bots.resetBotMemory) Bots.resetBotMemory();
     mySeat = 0;
     inGame = true;
+    dealPlayed = false;
+    lastRenderedView = null;
     show('screen-table');
     renderTable();
     advanceBots();
@@ -139,14 +202,16 @@
     clearTimeout(botTimer);
     botTimer = setTimeout(function () {
       if (!game || game.phase !== 'playing') return;
-      var card = Bots.chooseBotMove(E, game, game.turn);
+      var seat = game.turn;
+      var card = Bots.chooseBotMove(E, game, seat);
       if (!card) return;
-      var res = E.applyPlay(game, game.turn, card);
+      var res = E.applyPlay(game, seat, card);
       if (!res.ok) return;
+      lastPlay = { player: seat, card: card, thulla: res.thulla };
       if (mode === 'friends' && isHost) broadcastState();
       renderTable();
       afterMove();
-    }, 600 + Math.random() * 300);
+    }, 1400 + Math.random() * 800);
   }
 
   function afterMove() {
@@ -156,15 +221,20 @@
   }
 
   function onCardClick(card) {
+    // Remember where the card was in the hand so it can fly to the table.
+    var cardEl = document.querySelector('#my-hand .card[data-card="' + card + '"]');
+    if (cardEl) pendingHandRect = { card: card, rect: cardEl.getBoundingClientRect() };
     if (mode === 'bots') {
       var res = E.applyPlay(game, mySeat, card);
-      if (!res.ok) { toast(res.error || 'That card cannot be played now.'); return; }
+      if (!res.ok) { pendingHandRect = null; toast(res.error || 'That card cannot be played now.'); return; }
+      lastPlay = { player: mySeat, card: card, thulla: res.thulla };
       renderTable();
       afterMove();
     } else if (mode === 'friends') {
       if (isHost) {
         var r2 = E.applyPlay(game, mySeat, card);
-        if (!r2.ok) { toast(r2.error || 'That card cannot be played now.'); return; }
+        if (!r2.ok) { pendingHandRect = null; toast(r2.error || 'That card cannot be played now.'); return; }
+        lastPlay = { player: mySeat, card: card, thulla: r2.thulla };
         broadcastState();
         renderTable();
         afterMove();
@@ -180,6 +250,12 @@
   var SEAT_CLASS_4 = ['seat-bottom', 'seat-left', 'seat-top', 'seat-right'];
   var SEAT_CLASS_3 = ['seat-bottom', 'seat-top-left', 'seat-top-right'];
 
+  // Render the table. When a trick has just resolved, first show the
+  // just-played card flying in (the engine already cleared the trick, so the
+  // intermediate state is rebuilt from lastPlay), let it sit for a beat so
+  // everyone can see it, then render the resolved state (flying the pile to
+  // the player who picked it up, if any). Mid-trick plays render immediately
+  // and cancel any pending hold.
   function renderTable() {
     var view = null;
     if (mode === 'bots' || isHost) {
@@ -189,7 +265,48 @@
       view = viewState;
       if (!view) return;
     }
+    latestView = view;
+    var prev = lastRenderedView;
+    var resolution = prev && prev.trick && prev.trick.length > 0 &&
+      view.trick.length === 0 && view.phase === 'playing';
+    if (resolution) {
+      // Show the final card of the trick flying in before clearing it.
+      var lp = view.lastPlay || lastPlay;
+      var delay = 900;
+      if (lp && prev.trick.filter(function (t) { return t.card === lp.card; }).length === 0) {
+        var mid = cloneViewWithTrick(view, prev.trick.concat([{ player: lp.player, card: lp.card }]));
+        mid.lastEvent = { type: lp.thulla ? 'thulla' : 'play', player: lp.player, card: lp.card };
+        clearTimeout(renderTimer);
+        renderTimer = null;
+        renderTableView(mid);
+        lastRenderedView = mid;
+        delay = lp.thulla ? 1100 : 900;
+      }
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(function () {
+        renderTimer = null;
+        if (latestView.lastEvent && latestView.lastEvent.type === 'thulla-pickup') {
+          animatePileToSeat(latestView.lastEvent.player);
+          flashThulla('PICK UP!', 'thulla-pickup|' + JSON.stringify(latestView.lastEvent));
+        }
+        renderTableView(latestView);
+        lastRenderedView = latestView;
+      }, delay);
+      return;
+    }
+    clearTimeout(renderTimer);
+    renderTimer = null;
     renderTableView(view);
+    lastRenderedView = view;
+  }
+
+  // Shallow copy of a view with a different trick (for the intermediate
+  // render of a just-resolved trick).
+  function cloneViewWithTrick(view, trick) {
+    var v = {};
+    for (var k in view) v[k] = view[k];
+    v.trick = trick;
+    return v;
   }
 
   function renderTableView(view) {
@@ -203,6 +320,10 @@
       var idx = (mySeat + rel) % n;
       var p = view.players[idx];
       var seat = el('div', 'seat ' + seatCls[rel] + (view.turn === idx && view.phase === 'playing' ? ' turn' : ''));
+      seat.dataset.player = idx;
+      var av = el('div', 'avatar', (p.name || '?').charAt(0).toUpperCase());
+      av.style.background = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+      seat.appendChild(av);
       var nameRow = el('div', 'seat-name', p.name + (idx === mySeat ? ' (You)' : ''));
       if (p.isBot) nameRow.appendChild(el('span', 'tag', ' BOT'));
       if (p.disconnected) nameRow.appendChild(el('span', 'tag warn', ' DISCONNECTED'));
@@ -228,7 +349,11 @@
       seatsBox.appendChild(seat);
     }
 
-    // Trick pile in the centre.
+    // Trick pile in the centre — each card sits by the seat of the player
+    // who played it. Newly played cards fly in from that player's seat.
+    var prevTrick = lastRenderedView ? lastRenderedView.trick : [];
+    var prevCards = {};
+    prevTrick.forEach(function (t) { prevCards[t.card] = t.player; });
     var pile = $('trick-pile');
     pile.innerHTML = '';
     if (!view.trick.length) {
@@ -236,14 +361,41 @@
         view.isFirstTrick ? 'First trick: the Ace of Spades must be led.' : 'Waiting for the lead…'));
     } else {
       view.trick.forEach(function (t, i) {
-        var wrap = el('div', 'trick-card');
-        wrap.style.setProperty('--rot', ((i - (view.trick.length - 1) / 2) * 7) + 'deg');
+        var rel = (t.player - mySeat + n) % n;
+        var wrap = el('div', 'trick-card small ' + seatCls[rel]);
+        wrap.dataset.card = t.card;
+        wrap.style.setProperty('--rot', ((i - (view.trick.length - 1) / 2) * 6) + 'deg');
         wrap.appendChild(Cards.createCard(t.card, E, { small: true }));
         wrap.appendChild(el('div', 'trick-who', view.players[t.player].name));
         pile.appendChild(wrap);
+        if (!prevCards[t.card]) {
+          var isThulla = view.lastEvent && view.lastEvent.type === 'thulla' &&
+            view.lastEvent.card === t.card && view.lastEvent.player === t.player;
+          var fromRect = null;
+          if (pendingHandRect && pendingHandRect.card === t.card) {
+            fromRect = pendingHandRect.rect;
+            pendingHandRect = null;
+          } else {
+            var sEl = seatElForPlayer(t.player);
+            if (sEl) fromRect = sEl.getBoundingClientRect();
+          }
+          if (fromRect) flyCardToTrick(wrap, fromRect, isThulla);
+          if (isThulla) { slamTable(); Sound.thud(); }
+          else Sound.tick();
+        }
       });
     }
     $('waste-count').textContent = 'Waste pile: ' + view.wasteCount + ' cards';
+
+    // Dealing animation on a fresh deal (once per game).
+    var dealtNow = false;
+    if (!dealPlayed && view.phase === 'playing' && view.isFirstTrick &&
+        view.trick.length === 0 &&
+        view.players.reduce(function (a, p) { return a + p.count; }, 0) === 52) {
+      dealPlayed = true;
+      dealtNow = true;
+      dealAnimation(view);
+    }
 
     // Turn banner.
     var banner = $('turn-banner');
@@ -258,7 +410,11 @@
     }
 
     // My hand (bottom fan).
-    renderHand(view);
+    renderHand(view, dealtNow);
+
+    // Chime when someone got away.
+    var prevSafe = lastRenderedView ? lastRenderedView.safeOrder.length : 0;
+    if (view.safeOrder.length > prevSafe) Sound.chime();
 
     // Log.
     var logBox = $('game-log');
@@ -286,7 +442,7 @@
     }
   }
 
-  function renderHand(view) {
+  function renderHand(view, dealtNow) {
     var handBox = $('my-hand');
     handBox.innerHTML = '';
     var me = view.players[mySeat];
@@ -300,25 +456,142 @@
       if (sa !== sb) return 'SHDC'.indexOf(sa) - 'SHDC'.indexOf(sb);
       return E.rankOf(b) - E.rankOf(a);
     });
-    sorted.forEach(function (card) {
+    sorted.forEach(function (card, i) {
       var playable = legal.indexOf(card) !== -1;
       var canPlay = view.phase === 'playing' && view.turn === mySeat;
-      handBox.appendChild(Cards.createCard(card, E, {
+      var cardEl = Cards.createCard(card, E, {
         playable: canPlay && playable,
         dimmed: canPlay && !playable,
         onClick: (canPlay && playable) ? onCardClick : null
-      }));
+      });
+      if (dealtNow) {
+        cardEl.classList.add('deal-in');
+        cardEl.style.animationDelay = (i * 45) + 'ms';
+      }
+      handBox.appendChild(cardEl);
     });
     if (!sorted.length) {
       handBox.appendChild(el('div', 'hand-empty', me.out ? 'You got away! 🎉' : 'No cards.'));
     }
   }
 
-  function flashThulla(text) {
+  function flashThulla(text, key) {
+    if (key) lastFlashKey = key;
     var f = $('thulla-flash');
     f.textContent = text;
     f.classList.add('show');
-    setTimeout(function () { f.classList.remove('show'); }, 1400);
+    setTimeout(function () { f.classList.remove('show'); }, 900);
+  }
+
+  // ---------- table animation helpers ----------
+  function seatElForPlayer(idx) {
+    var seats = document.querySelectorAll('#seats .seat');
+    for (var i = 0; i < seats.length; i++) {
+      if (Number(seats[i].dataset.player) === idx) return seats[i];
+    }
+    return null;
+  }
+
+  // Fly a trick card from a source rect (a seat, or the human's hand) to its
+  // final slot. FLIP-style: the card is already placed, we animate it in.
+  function flyCardToTrick(cardEl, fromRect, isThulla) {
+    if (!cardEl || !fromRect || !cardEl.animate) return;
+    var toRect = cardEl.getBoundingClientRect();
+    var dx = (fromRect.left + fromRect.width / 2) - (toRect.left + toRect.width / 2);
+    var dy = (fromRect.top + fromRect.height / 2) - (toRect.top + toRect.height / 2);
+    var rot = cardEl.style.getPropertyValue('--rot') || '0deg';
+    var end = 'translate(0px, 0px) rotate(' + rot + ') scale(1)';
+    if (isThulla) {
+      // Slam: fast drop with a bounce at the end.
+      cardEl.animate([
+        { transform: 'translate(' + dx + 'px, ' + (dy - 70) + 'px) rotate(-16deg) scale(1.05)', opacity: 0.9, offset: 0 },
+        { transform: 'translate(' + (dx * 0.12) + 'px, ' + (dy * 0.12 - 30) + 'px) rotate(7deg) scale(1.14)', opacity: 1, offset: 0.68 },
+        { transform: 'translate(0px, -14px) rotate(' + rot + ') scale(1.2)', offset: 0.85 },
+        { transform: end, offset: 1 }
+      ], { duration: 680, easing: 'ease-in' });
+    } else {
+      cardEl.animate([
+        { transform: 'translate(' + dx + 'px, ' + dy + 'px) rotate(-12deg) scale(0.85)', opacity: 0.85, offset: 0 },
+        { transform: 'translate(' + (dx * 0.5) + 'px, ' + (dy * 0.5 - 36) + 'px) rotate(5deg) scale(0.96)', opacity: 1, offset: 0.55 },
+        { transform: end, offset: 1 }
+      ], { duration: 750, easing: 'cubic-bezier(.25,.7,.3,1)' });
+    }
+  }
+
+  function slamTable() {
+    var t = $('table-wrap');
+    if (!t) return;
+    t.classList.remove('shake');
+    void t.offsetWidth; // restart the shake animation
+    t.classList.add('shake');
+    setTimeout(function () { t.classList.remove('shake'); }, 450);
+  }
+
+  // Fly ghost copies of the trick pile to the player who picked it up.
+  function animatePileToSeat(playerIdx) {
+    var pile = $('trick-pile');
+    if (!pile || !pile.children.length) return;
+    var pileRect = pile.getBoundingClientRect();
+    var seat = seatElForPlayer(playerIdx);
+    var toRect = seat ? seat.getBoundingClientRect() : pileRect;
+    var cx = pileRect.left + pileRect.width / 2;
+    var cy = pileRect.top + pileRect.height / 2;
+    var tx = toRect.left + toRect.width / 2;
+    var ty = toRect.top + toRect.height / 2;
+    for (var i = 0; i < 3; i++) {
+      (function (k) {
+        var g = Cards.createBack({ small: true });
+        g.classList.add('fly-ghost');
+        g.style.left = (cx - 13 + k * 10) + 'px';
+        g.style.top = (cy - 18) + 'px';
+        document.body.appendChild(g);
+        g.animate([
+          { transform: 'translate(0px, 0px) scale(1)', opacity: 1 },
+          { transform: 'translate(' + (tx - cx) + 'px, ' + (ty - cy) + 'px) scale(0.55)', opacity: 0.9 }
+        ], { duration: 700, delay: k * 70, easing: 'cubic-bezier(.4,.6,.4,1)', fill: 'forwards' });
+        setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 950 + k * 70);
+      })(i);
+    }
+  }
+
+  // Cards fly one by one from a centre deck pile to each seat.
+  function dealAnimation(view) {
+    var wrap = $('table-wrap');
+    if (!wrap) return;
+    var wrapRect = wrap.getBoundingClientRect();
+    var cx = wrapRect.left + wrapRect.width / 2;
+    var cy = wrapRect.top + wrapRect.height * 0.42;
+    var deck = Cards.createBack({});
+    deck.classList.add('fly-ghost', 'deal-deck');
+    deck.style.left = (cx - 42) + 'px';
+    deck.style.top = (cy - 58) + 'px';
+    document.body.appendChild(deck);
+    var n = view.numPlayers;
+    var maxHand = 0;
+    view.players.forEach(function (p) { if (p.count > maxHand) maxHand = p.count; });
+    for (var r = 0; r < maxHand; r++) {
+      for (var p = 0; p < n; p++) {
+        if (r >= view.players[p].count) continue;
+        (function (playerIdx, delay) {
+          var g = Cards.createBack({ small: true });
+          g.classList.add('fly-ghost');
+          g.style.left = (cx - 13) + 'px';
+          g.style.top = (cy - 18) + 'px';
+          document.body.appendChild(g);
+          var seat = seatElForPlayer(playerIdx);
+          var sr = seat ? seat.getBoundingClientRect() : { left: cx, top: cy, width: 0, height: 0 };
+          var dx = (sr.left + sr.width / 2) - cx;
+          var dy = (sr.top + sr.height / 2) - cy;
+          g.animate([
+            { transform: 'translate(0px, 0px) rotate(0deg)', opacity: 1 },
+            { transform: 'translate(' + (dx * 0.6) + 'px, ' + (dy * 0.6 - 22) + 'px) rotate(12deg)', opacity: 1, offset: 0.6 },
+            { transform: 'translate(' + dx + 'px, ' + dy + 'px) rotate(0deg) scale(0.7)', opacity: 0.95 }
+          ], { duration: 520, delay: delay, easing: 'ease-out', fill: 'forwards' });
+          setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, delay + 620);
+        })(p, r * 95 + p * 45);
+      }
+    }
+    setTimeout(function () { if (deck.parentNode) deck.parentNode.removeChild(deck); }, maxHand * 95 + 500);
   }
 
   // ---------- result ----------
@@ -384,6 +657,8 @@
     getName();
     mode = 'friends';
     isHost = true;
+    dealPlayed = false;
+    lastRenderedView = null;
     roomCode = randomCode();
     lobbyPlayers = [{ name: myName, seat: 0, isHost: true }];
     lobbyStarted = false;
@@ -468,6 +743,7 @@
       try { conn.send({ t: 'error', msg: res.error || 'Illegal move.' }); } catch (e) { /* ignore */ }
       return;
     }
+    lastPlay = { player: seat, card: card, thulla: res.thulla };
     broadcastState();
     renderTable();
     afterMove();
@@ -525,8 +801,11 @@
     var names = lobbyPlayers.slice().sort(function (a, b) { return a.seat - b.seat; })
       .map(function (p) { return p.name; });
     game = E.createGame(lobbyPlayers.length, { names: names });
+    if (Bots.resetBotMemory) Bots.resetBotMemory();
     mySeat = 0;
     inGame = true;
+    dealPlayed = false;
+    lastRenderedView = null;
     broadcastState();
     show('screen-table');
     renderTable();
@@ -538,6 +817,8 @@
     getName();
     mode = 'friends';
     isHost = false;
+    dealPlayed = false;
+    lastRenderedView = null;
     roomCode = code;
     setFriendsStatus('Connecting to room ' + code + '…');
     Net.joinRoom(code, {
@@ -643,6 +924,12 @@
 
   function leaveGame() {
     clearTimeout(botTimer);
+    clearTimeout(renderTimer);
+    renderTimer = null;
+    lastRenderedView = null;
+    latestView = null;
+    pendingHandRect = null;
+    dealPlayed = false;
     try { if (peer && peer.destroy) peer.destroy(); } catch (e) { /* ignore */ }
     try { if (hostConn) hostConn.close(); } catch (e) { /* ignore */ }
     peer = null; hostConn = null; hostConns = {};
@@ -655,6 +942,12 @@
   // ---------- rules modal ----------
   function openRules() { $('rules-modal').classList.add('show'); }
   function closeRules() { $('rules-modal').classList.remove('show'); }
+
+  // ---------- sound toggle ----------
+  function updateSoundBtn() {
+    var b = $('btn-sound');
+    if (b) b.textContent = soundMuted ? '🔇 Sound: Off' : '🔊 Sound: On';
+  }
 
   // ---------- wire up ----------
   function init() {
@@ -670,6 +963,13 @@
     });
     $('btn-rules').addEventListener('click', openRules);
     $('btn-rules-table').addEventListener('click', openRules);
+    $('btn-sound').addEventListener('click', function () {
+      soundMuted = !soundMuted;
+      try { localStorage.setItem('thulla-muted', soundMuted ? '1' : '0'); } catch (e) { /* ignore */ }
+      updateSoundBtn();
+      if (!soundMuted) Sound.tick();
+    });
+    updateSoundBtn();
     $('btn-close-rules').addEventListener('click', closeRules);
     $('rules-modal').addEventListener('click', function (e) {
       if (e.target === $('rules-modal')) closeRules();

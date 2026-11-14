@@ -10,21 +10,36 @@
 <body>
 
 <header class="app-header">
-  <h1>🃏 Bhabhi Thulla</h1>
+  <h1 class="game-title">BHABHI THULLA</h1>
   <p class="tagline">The Punjabi shedding card game — also known as Getaway. Don&rsquo;t be the last one holding cards!</p>
+  <div class="suit-row" aria-hidden="true"><span>♠</span><span>♥</span><span>♦</span><span>♣</span></div>
 </header>
 
 <main>
   <!-- ============ HOME ============ -->
   <section id="screen-home" class="screen active">
     <div class="panel">
-      <h2>Welcome!</h2>
+      <div class="home-deck" aria-hidden="true">
+        <div class="card back small" style="--dr:-14deg"><div class="back-pattern">✦</div></div>
+        <div class="card back small" style="--dr:-5deg"><div class="back-pattern">✦</div></div>
+        <div class="card face-mini small" style="--dr:4deg"><span class="fm-rank">A</span><span class="fm-suit">♠</span></div>
+        <div class="card back small" style="--dr:13deg"><div class="back-pattern">✦</div></div>
+      </div>
+      <h2>Welcome to the table!</h2>
       <label class="field-label" for="name-input">Your name</label>
       <input type="text" id="name-input" maxlength="16" placeholder="Enter your name" autocomplete="off">
       <p class="hint">Your name is saved on this device only. No account, no sign-up.</p>
-      <div>
-        <button class="btn" id="btn-mode-bots">🤖 Play vs Bots</button>
-        <button class="btn" id="btn-mode-friends">👥 Play with Friends</button>
+      <div class="mode-grid">
+        <button class="mode-card" id="btn-mode-bots">
+          <span class="mode-icon">🤖</span>
+          <span class="mode-title">Play vs Bots</span>
+          <span class="mode-desc">You + 2 or 3 computer players. Perfect for practice.</span>
+        </button>
+        <button class="mode-card" id="btn-mode-friends">
+          <span class="mode-icon">👥</span>
+          <span class="mode-title">Play with Friends</span>
+          <span class="mode-desc">Create a room, share the 6-digit code, play together.</span>
+        </button>
       </div>
       <div>
         <button class="btn secondary" id="btn-rules">📖 Rules</button>
@@ -90,7 +105,7 @@
   <section id="screen-table" class="screen">
     <div class="turn-banner" id="turn-banner"></div>
     <div class="conn-status ok" id="conn-status"></div>
-    <div class="table-wrap">
+    <div class="table-wrap" id="table-wrap">
       <div class="seats players-4" id="seats"></div>
       <div class="trick-area">
         <div class="trick-pile" id="trick-pile"></div>
@@ -105,6 +120,7 @@
       <div id="game-log"></div>
     </div>
     <div class="table-controls">
+      <button class="btn secondary small" id="btn-sound">🔊 Sound: On</button>
       <button class="btn secondary small" id="btn-rules-table">📖 Rules</button>
       <button class="btn secondary small" id="btn-leave-table">Leave Game</button>
     </div>
